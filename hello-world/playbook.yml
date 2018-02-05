@@ -1,0 +1,8 @@
+---
+  - name: Demo command powered by ansible
+    hosts: all
+    tasks:
+      - name: Add a file to root's home dir
+        copy:
+          content: Hello World!
+          dest: /home/packer/hello-world.txt
