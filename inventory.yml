@@ -1,29 +1,37 @@
 ---
+# Bootstrap master manager
 master:
   hosts:
     mgt-1:
-
-managers:
-  hosts:
-    mgt-1:
-      ansible_host: 192.168.174.182
-      ansible_user: packer
-      ansible_ssh_pass: packer
+      ansible_host: 10.10.5.29
+      ansible_user: "{{user}}"
+      ansible_ssh_pass: "{{pass}}"
       vars:
         labels: management,proxy,admin
+  vars:
+    user: packer
+    pass: packer
 
+# Additional managers go here if > 1
+# managers:
+#   hosts:
+
+# Swarm workers
 workers:
   hosts:
     svc-1:
-      ansible_host: 192.168.174.247
-      ansible_user: packer
-      ansible_ssh_pass: packer
+      ansible_host: 10.10.5.56
+      ansible_user: "{{user}}"
+      ansible_ssh_pass: "{{pass}}"
       vars:
         labels: service,golang,python
 
     db-1:
-      ansible_host: 192.168.174.242
-      ansible_user: packer
-      ansible_ssh_pass: packer
+      ansible_host: 10.10.6.202
+      ansible_user: "{{user}}"
+      ansible_ssh_pass: "{{pass}}"
       vars:
         labels: mysql,couchbase,redis
+  vars:
+    user: packer
+    pass: packer

@@ -1,0 +1,5 @@
+terraform-provider-virtualbox
+.DS_Store
+*tfstate*
+inventory-aws.yml
+playbook.retry

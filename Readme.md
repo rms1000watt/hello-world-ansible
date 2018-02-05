@@ -22,6 +22,20 @@ brew install sshpass
 
 ## Usage
 
+First time only to update known_hosts:
+
+```bash
+grep "ansible_host" inventory.yml | awk '{print $2}' | xargs  ssh-keyscan | grep "nistp256" >> ~/.ssh/known_hosts
+```
+
+Hello World playbook:
+
 ```bash
 ansible-playbook -i inventory.yml hello-world/playbook.yml
+```
+
+Swarm playbook:
+
+```bash
+ansible-playbook -i inventory.yml swarm/playbook.yml
 ```

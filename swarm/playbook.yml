@@ -1,78 +1,114 @@
 ---
-- name: Setting Facts
-  hosts: all
-  tasks:
-  - set_fact:
-      docker_edition: ce
-      docker_channel: stable
-      docker_version: 17.12.0
-      docker_apt_cache_time: 86400
-      docker_users: ["packer"]
-
-- name: Remove old Docker versions
-  hosts: all
-  become: true
-  tasks:
-    - package: 
-        name: "{{item}}"
-        state: absent
-      with_items:
-        - docker
-        - docker-engine
-        - docker.io
-
-- name: Install Docker and role dependencies
-  hosts: all
-  tasks:
-    - package:
-        name: "{{item}}"
-        state: present
-        install_recommends: False
-      with_items:
-        - apt-transport-https
-        - ca-certificates
-        - software-properties-common
-        - curl
-
-# - name: Get upstream APT GPG key
-#   hosts: all
-#   tasks:
-#   - apt_key:
-#       id: "{{ docker_apt_key }}"
-#       keyserver: "{{ ansible_local.core.keyserver
-#                       if (ansible_local|d() and ansible_local.core|d() and
-#                           ansible_local.core.keyserver)
-#                       else 'hkp://pool.sks-keyservers.net' }}"
-#       state: "present"
-
-
-- name: Configure upstream APT repository
-  hosts: all
-  tasks:
-  - apt_repository:
-      repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} {{ docker_channel }}"
-      state: "present"
-      update_cache: True
-
 - name: Install Docker
   hosts: all
   become: true
   tasks:
-    - package:
-        name: "docker-{{ docker_edition }}={{ docker_version }}~{{ docker_edition }}-0~{{ ansible_distribution | lower }}"
-        state: "present"
-        update_cache: True
-        install_recommends: False
-        cache_valid_time: "{{ docker_apt_cache_time }}"
+  - name: Setting facts
+    set_fact:
+      docker_edition: ce
+      docker_channel: stable
+      docker_version: 17.12.0
+      docker_apt_cache_time: 86400
+      docker_users: ["packer", "ubuntu"]
 
-- name: Add Users to "docker" group
-  hosts: all
-  become: true
+  - name: Remove old Docker installations
+    package: 
+      name: "{{item}}"
+      state: absent
+    with_items:
+      - docker
+      - docker-engine
+      - docker.io
+
+  - name: Install Docker dependencies
+    package:
+      name: "{{item}}"
+      state: present
+      install_recommends: False
+    with_items:
+      - apt-transport-https
+      - ca-certificates
+      - software-properties-common
+      - curl
+
+  - name: Download Docker APT key
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+  - name: Configure APT repo
+    apt_repository:
+      repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} {{ docker_channel }}"
+      state: "present"
+      update_cache: True
+
+  - name: Install Docker
+    package:
+      name: "docker-{{ docker_edition }}={{ docker_version }}~{{ docker_edition }}-0~{{ ansible_distribution | lower }}"
+      state: "present"
+      update_cache: True
+      install_recommends: False
+      cache_valid_time: "{{ docker_apt_cache_time }}"
+
+  - name: Add Users to Docker group
+    user:
+      name: "{{item}}"
+      groups: "docker"
+      append: True
+    with_items: "{{docker_users}}"
+    when: docker_users
+
+
+- name: Bootstrap Swarm
+  hosts: master
+  become: True
   tasks:
-    - user:
-        name: "{{item}}"
-        groups: "docker"
-        append: True
-      with_items: "{{docker_users}}"
-      when: docker_users
-        
+  - name: Collect Docker Info
+    shell: docker info
+    changed_when: False
+    register: docker_info
+
+  - name: Init Swarm
+    shell: "docker swarm init \
+    --listen-addr {{ ansible_default_ipv4.address }}:2377 \
+    --advertise-addr {{ ansible_default_ipv4.address }}"
+    when: "docker_info.stdout.find('Swarm: active') == -1"
+
+  - name: Get Worker join-token
+    shell: docker swarm join-token -q worker
+    changed_when: False
+    register: docker_worker_token
+
+  - name: Get Manager join-token
+    shell: docker swarm join-token -q manager
+    changed_when: False
+    register: docker_manager_token
+
+  - name: List Docker Networks
+    shell: docker network ls --filter name=gray-net
+    changed_when: False
+    register: docker_network
+
+  - name: Create Gray Network
+    shell: docker network create --driver=overlay --attachable gray-net
+    when:  "docker_network.stdout.find('gray-net') == -1"
+  
+
+# - name: Join manager nodes
+#   hosts: managers
+#   become: True
+#   tasks:
+#   - name: Join the pending Swarm manager nodes
+#     shell: docker swarm join --token "{{ docker_manager_token.stdout }}" {{ swarn_manager_address }}:{{ swarn_manager_port }}
+#     changed_when: False
+#     when: "docker_info.stdout.find('Swarm: active') == -1 and docker_info.stdout.find('Swarm: pending') == -1"
+
+
+- name: Join worker nodes
+  hosts: workers
+  become: True
+  tasks:
+    - name: Join the pending Swarm worker nodes
+      # shell: docker swarm join --token "{{ docker_worker_token.stdout }}" {{ swarn_manager_address }}:{{ swarn_manager_port }}
+      changed_when: False
+      when: "docker_info.stdout.find('Swarm: active') == -1 and docker_info.stdout.find('Swarm: pending') == -1"

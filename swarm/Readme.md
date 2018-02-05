@@ -14,7 +14,16 @@ Follow steps at [Local Hashicorp Stack](https://github.com/rms1000watt/local-has
 
 ```bash
 cd terraform
-go get github.com/pyToshka/terraform-provider-virtualbox
+
+# Only need to do this once
+git clone github.com/pyToshka/terraform-provider-virtualbox
+cd terraform-provider-virtualbox
+go build -o tf-vb-provider
+mv tf-vb-provider ..
+cd ..
+rm -rf terraform-provider-virtualbox
+mv tf-vb-provider terraform-provider-virtualbox
+
 
 terraform init
 terraform apply
