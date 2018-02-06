@@ -3,7 +3,7 @@
   hosts: all
   become: true
   tasks:
-  - name: Setting facts
+  - name: Set Docker Install Facts
     set_fact:
       docker_edition: ce
       docker_channel: stable
@@ -11,7 +11,7 @@
       docker_apt_cache_time: 86400
       docker_users: ["packer", "ubuntu"]
 
-  - name: Remove old Docker installations
+  - name: Remove Old Docker Installations
     package: 
       name: "{{item}}"
       state: absent
@@ -20,7 +20,7 @@
       - docker-engine
       - docker.io
 
-  - name: Install Docker dependencies
+  - name: Install Docker Dependencies
     package:
       name: "{{item}}"
       state: present
@@ -31,12 +31,12 @@
       - software-properties-common
       - curl
 
-  - name: Download Docker APT key
+  - name: Download Docker APT Key
     apt_key:
       url: https://download.docker.com/linux/ubuntu/gpg
       state: present
 
-  - name: Configure APT repo
+  - name: Configure APT Repo
     apt_repository:
       repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} {{ docker_channel }}"
       state: "present"
@@ -50,7 +50,7 @@
       install_recommends: False
       cache_valid_time: "{{ docker_apt_cache_time }}"
 
-  - name: Add Users to Docker group
+  - name: Add Users To Docker Group
     user:
       name: "{{item}}"
       groups: "docker"
@@ -61,54 +61,102 @@
 
 - name: Bootstrap Swarm
   hosts: master
-  become: True
+  become: true
   tasks:
-  - name: Collect Docker Info
-    shell: docker info
+  - name: Collect Master Docker Info
+    command: docker info
     changed_when: False
     register: docker_info
 
   - name: Init Swarm
-    shell: "docker swarm init \
-    --listen-addr {{ ansible_default_ipv4.address }}:2377 \
-    --advertise-addr {{ ansible_default_ipv4.address }}"
+    command: "docker swarm init \
+    --listen-addr {{ansible_default_ipv4.address}}:2377 \
+    --advertise-addr {{ansible_default_ipv4.address}}"
     when: "docker_info.stdout.find('Swarm: active') == -1"
 
-  - name: Get Worker join-token
-    shell: docker swarm join-token -q worker
+  - name: Get Worker Join Token
+    command: docker swarm join-token -q worker
     changed_when: False
     register: docker_worker_token
 
-  - name: Get Manager join-token
-    shell: docker swarm join-token -q manager
+  - name: Get Manager Join Token
+    command: docker swarm join-token -q manager
     changed_when: False
     register: docker_manager_token
 
   - name: List Docker Networks
-    shell: docker network ls --filter name=gray-net
+    command: docker network ls --filter name=gray-net
     changed_when: False
     register: docker_network
 
   - name: Create Gray Network
-    shell: docker network create --driver=overlay --attachable gray-net
+    command: docker network create --driver=overlay --attachable gray-net
     when:  "docker_network.stdout.find('gray-net') == -1"
-  
+
+  - name: Set Outbound Master Facts
+    set_fact:
+      docker_master_ip_address: "{{ansible_default_ipv4.address}}"
+      docker_manager_token: "{{docker_manager_token}}"
+      docker_worker_token: "{{docker_worker_token}}"
+    
 
 # - name: Join manager nodes
 #   hosts: managers
-#   become: True
+#   become: true
 #   tasks:
 #   - name: Join the pending Swarm manager nodes
-#     shell: docker swarm join --token "{{ docker_manager_token.stdout }}" {{ swarn_manager_address }}:{{ swarn_manager_port }}
+#     command: docker swarm join --token "{{ docker_manager_token.stdout }}" {{ swarn_manager_address }}:{{ swarn_manager_port }}
 #     changed_when: False
 #     when: "docker_info.stdout.find('Swarm: active') == -1 and docker_info.stdout.find('Swarm: pending') == -1"
 
 
-- name: Join worker nodes
+- name: Join Worker Nodes
   hosts: workers
-  become: True
+  become: true
   tasks:
-    - name: Join the pending Swarm worker nodes
-      # shell: docker swarm join --token "{{ docker_worker_token.stdout }}" {{ swarn_manager_address }}:{{ swarn_manager_port }}
+    - name: Set Inbound Master Facts
+      set_fact:
+        docker_master_ip_address: "{{hostvars['mgt-1']['docker_master_ip_address']}}"
+        docker_manager_token: "{{hostvars['mgt-1']['docker_manager_token']}}"
+        docker_worker_token: "{{hostvars['mgt-1']['docker_worker_token']}}"
+    
+    - name: Collect Worker Docker Info
+      command: docker info
       changed_when: False
+      register: docker_info
+
+    - name: Leave Swarm If Error
+      command: docker swarm leave
+      when: "docker_info.stdout.find('Swarm: error') != -1"
+
+    - name: Join Each Worker Node
+      command: docker swarm join --token "{{docker_worker_token.stdout}}" {{docker_master_ip_address}}:2377
       when: "docker_info.stdout.find('Swarm: active') == -1 and docker_info.stdout.find('Swarm: pending') == -1"
+
+    - meta: end_play
+      when: "docker_info.stdout.find('Swarm: error') != -1"
+
+
+- name: Clean Down Nodes
+  hosts: master
+  become: true
+  tasks:
+    - name: Get Node Statuses
+      command: docker node ls
+      changed_when: False
+      register: docker_node_statuses
+
+    - name: Remove Down Nodes
+      shell: docker node ls | grep Down | awk '{print $1}' | xargs docker node rm
+      when: "docker_node_statuses.stdout.find('Down') != -1"
+
+
+- name: Add Labels
+  hosts: all
+  become: true
+  tasks:
+    - name: Add Label To Node
+      command: docker node update --label-add {{item}}=true {{ansible_hostname}}
+      delegate_to: mgt-1
+      with_items:
+        - "{{hostvars[inventory_hostname]['vars']['labels'] | default([])}}"

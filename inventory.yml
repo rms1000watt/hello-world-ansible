@@ -7,7 +7,7 @@ master:
       ansible_user: "{{user}}"
       ansible_ssh_pass: "{{pass}}"
       vars:
-        labels: management,proxy,admin
+        labels: ["management","proxy","admin"]
   vars:
     user: packer
     pass: packer
@@ -24,14 +24,14 @@ workers:
       ansible_user: "{{user}}"
       ansible_ssh_pass: "{{pass}}"
       vars:
-        labels: service,golang,python
+        labels: ["service","golang","python"]
 
     db-1:
       ansible_host: 10.10.6.202
       ansible_user: "{{user}}"
       ansible_ssh_pass: "{{pass}}"
       vars:
-        labels: mysql,couchbase,redis
+        labels: ["mysql","couchbase","redis"]
   vars:
     user: packer
     pass: packer
