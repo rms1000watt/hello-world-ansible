@@ -85,13 +85,13 @@
     register: docker_manager_token
 
   - name: List Docker Networks
-    command: docker network ls --filter name=gray-net
+    command: docker network ls --filter name=my-net
     changed_when: False
     register: docker_network
 
-  - name: Create Gray Network
-    command: docker network create --driver=overlay --attachable gray-net
-    when:  "docker_network.stdout.find('gray-net') == -1"
+  - name: Create My Network
+    command: docker network create --driver=overlay --attachable my-net
+    when:  "docker_network.stdout.find('my-net') == -1"
 
   - name: Set Outbound Master Facts
     set_fact:
